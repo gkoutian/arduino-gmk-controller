@@ -43,10 +43,60 @@ struct rotariesdef {
 };
 
 rotariesdef rotaries[ROTARIES_COUNT] { // List of all the rotary encoders
-    {8,9,16,17,0},
-    {10,11,18,19,0},
-    {12,13,20,21,0},
+    {9,8,16,17,0},
+    {11,10,18,19,0},
+    {13,12,20,21,0},
 };
+
+#define DIR_CCW 0x10   // == 16
+#define DIR_CW 0x20 // == 32
+#define R_START 0x0 // == 0
+
+#ifdef HALF_STEP
+#define R_CCW_BEGIN 0x1 // == 1
+#define R_CW_BEGIN 0x2 // == 2
+#define R_START_M 0x3 // == 3
+#define R_CW_BEGIN_M 0x4 // == 4
+#define R_CCW_BEGIN_M 0x5 // == 5
+const unsigned char ttable[6][4] = {
+    // R_START (00)
+    {R_START_M,            R_CW_BEGIN,     R_CCW_BEGIN,  R_START},
+    // R_CCW_BEGIN
+    {R_START_M | DIR_CCW, R_START,        R_CCW_BEGIN,  R_START},
+    // R_CW_BEGIN
+    {R_START_M | DIR_CW,  R_CW_BEGIN,     R_START,      R_START},
+    // R_START_M (11)
+    {R_START_M,            R_CCW_BEGIN_M,  R_CW_BEGIN_M, R_START},
+    // R_CW_BEGIN_M
+    {R_START_M,            R_START_M,      R_CW_BEGIN_M, R_START | DIR_CW},
+    // R_CCW_BEGIN_M
+    {R_START_M,            R_CCW_BEGIN_M,  R_START_M,    R_START | DIR_CCW},
+};
+#else
+#define R_CW_FINAL 0x1 // == 1
+#define R_CW_BEGIN 0x2 // == 2
+#define R_CW_NEXT 0x3 // == 3
+#define R_CCW_BEGIN 0x4 // == 4
+#define R_CCW_FINAL 0x5 // == 5
+#define R_CCW_NEXT 0x6 // == 6
+
+const unsigned char ttable[7][4] = {
+    // R_START
+    {R_START,    R_CW_BEGIN,  R_CCW_BEGIN, R_START},
+    // R_CW_FINAL
+    {R_CW_NEXT,  R_START,     R_CW_FINAL,  R_START | DIR_CW},
+    // R_CW_BEGIN
+    {R_CW_NEXT,  R_CW_BEGIN,  R_START,     R_START},
+    // R_CW_NEXT
+    {R_CW_NEXT,  R_CW_BEGIN,  R_CW_FINAL,  R_START},
+    // R_CCW_BEGIN
+    {R_CCW_NEXT, R_START,     R_CCW_BEGIN, R_START},
+    // R_CCW_FINAL
+    {R_CCW_NEXT, R_CCW_FINAL, R_START,     R_START | DIR_CCW},
+    // R_CCW_NEXT
+    {R_CCW_NEXT, R_CCW_FINAL, R_CCW_BEGIN, R_START},
+};
+#endif
 /* ------------------------------------- */
 
 /* ----- Joystick Buttons defs section ----- */
@@ -72,6 +122,7 @@ Joystick_ Joystick(JOYSTICK_DEFAULT_REPORT_ID,  // Joystick library configuratio
 /* ------------------------------------- */
 
 void setup() {
+  Serial.begin(9600);
     mouseInit();
     rotaryInit();
     typeSelectorInit();
@@ -151,14 +202,20 @@ void rotaryInit() {
     }
 }
 
+unsigned char rotary_process(int _i) {
+    unsigned char pinstate = (digitalRead(rotaries[_i].pin2) << 1) | digitalRead(rotaries[_i].pin1);
+    rotaries[_i].state = ttable[rotaries[_i].state & 0xf][pinstate];
+    return (rotaries[_i].state & 0x30);
+}
+
 void checkRotaryEncoders() {
     for (int i=0;i<ROTARIES_COUNT;i++) {
         int rotaryButtonNumber = 0; // Store joystick button number of encoder
-        int result = rotaryProcess(i); // Store if the encoder es moving or not
-        if (result == 1) { // If encoder was moved ccw
+        unsigned char result = rotary_process(i);
+        if (result == DIR_CCW) { // If encoder was moved ccw
             rotaryButtonNumber = rotaries[i].ccwchar;
         };
-        if (result == 2) { // If encoder was moved cw
+        if (result == DIR_CW) { // If encoder was moved cw
             rotaryButtonNumber = rotaries[i].cwchar;
         };
         if (rotaryButtonNumber != 0) { // If only encoder was moved
@@ -167,20 +224,6 @@ void checkRotaryEncoders() {
             Joystick.setButton(rotaryButtonNumber, 0);
         }
     }
-}
-
-int rotaryProcess(int i) {
-    int currentStateCLK = digitalRead(rotaries[i].pin1);
-    int lastStateCLK = rotaries[i].state;
-    if (currentStateCLK != lastStateCLK  && currentStateCLK == 1){
-        rotaries[i].state = currentStateCLK;
-        if (digitalRead(rotaries[i].pin2) != currentStateCLK) {
-			return 1;
-		} else {
-			return 2;
-		}
-    }
-    return 0;
 }
 
 void checkButtons() {
